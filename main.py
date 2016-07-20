@@ -109,6 +109,8 @@ def do_epoch(mode, epoch, skipped=0):
 
     batches_per_epoch = dmn.get_batches_per_epoch(mode)
 
+    if mode=="test":
+        batches_per_epoch=1000
     for i in range(0, batches_per_epoch):
         step_data = dmn.step(i, mode)
         prediction = step_data["prediction"]

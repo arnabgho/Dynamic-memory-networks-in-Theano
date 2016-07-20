@@ -439,7 +439,7 @@ class VQA_DMN_batch:
         all_x=[]
         for i in range(self.batch_size):
             x={"Q":"","C":"","A":1}
-            x["A"]=answers[i]
+            x["A"]=answers[i]-1
             temp_Q=map( self.convert_index_to_word , filter( lambda x: x>0 , qs[i]  )  )
             x["Q"]=' '.join(temp_Q)
 
