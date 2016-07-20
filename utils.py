@@ -1,5 +1,6 @@
 import os as os
 import numpy as np
+import h5py
 
 def init_babi(fname):
     print "==> Loading test from %s" % fname
@@ -8,8 +9,8 @@ def init_babi(fname):
     for i, line in enumerate(open(fname)):
         id = int(line[0:line.find(' ')])
         if id == 1:
-            task = {"C": "", "Q": "", "A": ""} 
-            
+            task = {"C": "", "Q": "", "A": ""}
+
         line = line.strip()
         line = line.replace('.', ' . ')
         line = line[line.find(' ')+1:]
@@ -23,6 +24,8 @@ def init_babi(fname):
             tasks.append(task.copy())
 
     return tasks
+
+#def init_babi_batch(fname_h5 ):
 
 
 def get_babi_raw(id, test_id):
@@ -49,7 +52,7 @@ def get_babi_raw(id, test_id):
         "20": "qa20_agents-motivations",
         "MCTest": "MCTest",
         "19changed": "19changed",
-        "joint": "all_shuffled", 
+        "joint": "all_shuffled",
         "sh1": "../shuffled/qa1_single-supporting-fact",
         "sh2": "../shuffled/qa2_two-supporting-facts",
         "sh3": "../shuffled/qa3_three-supporting-facts",
@@ -72,25 +75,25 @@ def get_babi_raw(id, test_id):
         "sh20": "../shuffled/qa20_agents-motivations",
     }
     if (test_id == ""):
-        test_id = id 
+        test_id = id
     babi_name = babi_map[id]
     babi_test_name = babi_map[test_id]
     babi_train_raw = init_babi(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'data/en/%s_train.txt' % babi_name))
     babi_test_raw = init_babi(os.path.join(os.path.dirname(os.path.realpath(__file__)), 'data/en/%s_test.txt' % babi_test_name))
     return babi_train_raw, babi_test_raw
 
-            
+
 def load_glove(dim):
     word2vec = {}
-    
+
     print "==> loading glove"
     with open(os.path.join(os.path.dirname(os.path.realpath(__file__)), "data/glove/glove.6B." + str(dim) + "d.txt")) as f:
-        for line in f:    
+        for line in f:
             l = line.split()
             word2vec[l[0]] = map(float, l[1:])
-            
+
     print "==> glove is loaded"
-    
+
     return word2vec
 
 
@@ -106,11 +109,11 @@ def create_vector(word, word2vec, word_vector_size, silent=False):
 def process_word(word, word2vec, vocab, ivocab, word_vector_size, to_return="word2vec", silent=False):
     if not word in word2vec:
         create_vector(word, word2vec, word_vector_size, silent)
-    if not word in vocab: 
+    if not word in vocab:
         next_index = len(vocab)
         vocab[word] = next_index
         ivocab[next_index] = word
-    
+
     if to_return == "word2vec":
         return word2vec[word]
     elif to_return == "index":

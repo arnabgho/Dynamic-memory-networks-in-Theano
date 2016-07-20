@@ -14,14 +14,15 @@ import utils
 import nn_utils
 
 import copy
-
+import json
+import h5py
 floatX = theano.config.floatX
 
-class DMN_batch:
+class VQA_DMN_batch:
 
     def __init__(self, babi_train_raw, babi_test_raw, word2vec, word_vector_size, dim,
                 mode, answer_module, input_mask_mode, memory_hops, batch_size, l2,
-                normalize_attention, batch_norm, dropout, **kwargs):
+                normalize_attention, batch_norm, dropout,h5file,json_dict_file ,num_answers, **kwargs):
 
         print "==> not used params in DMN class:", kwargs.keys()
 
@@ -40,10 +41,14 @@ class DMN_batch:
         self.normalize_attention = normalize_attention
         self.batch_norm = batch_norm
         self.dropout = dropout
+        self.h5file=h5py.File(h5file,"r")
+        with open (json_dict_file) as f:
+            self.json_dict=json.load(f)
 
         self.train_input, self.train_q, self.train_answer, self.train_fact_count, self.train_input_mask = self._process_input(babi_train_raw)
         self.test_input, self.test_q, self.test_answer, self.test_fact_count, self.test_input_mask = self._process_input(babi_test_raw)
-        self.vocab_size = len(self.vocab)
+        #self.vocab_size = len(self.vocab)
+        self.vocab_size=num_answers
 
         self.input_var = T.tensor3('input_var') # (batch_size, seq_len, glove_dim)
         self.q_var = T.tensor3('question_var') # as self.input_var
@@ -387,12 +392,13 @@ class DMN_batch:
             inputs.append(inp_vector)
             questions.append(q_vector)
             # NOTE: here we assume the answer is one word!
-            answers.append(utils.process_word(word = x["A"],
-                                            word2vec = self.word2vec,
-                                            vocab = self.vocab,
-                                            ivocab = self.ivocab,
-                                            word_vector_size = self.word_vector_size,
-                                            to_return = "index"))
+            #answers.append(utils.process_word(word = x["A"],
+            #                                word2vec = self.word2vec,
+            #                                vocab = self.vocab,
+            #                                ivocab = self.ivocab,
+            #                                word_vector_size = self.word_vector_size,
+            #                                to_return = "index"))
+            answers.append(x["A"])
             fact_counts.append(fact_count)
             input_masks.append(input_mask)
 
@@ -401,9 +407,11 @@ class DMN_batch:
 
     def get_batches_per_epoch(self, mode):
         if (mode == 'train'):
-            return len(self.train_input) / self.batch_size
+            num_train,_=self.h5file['ques_train'].shape
+            return num_train / self.batch_size
         elif (mode == 'test'):
-            return len(self.test_input) / self.batch_size
+            num_test,_=self.h5file['ques_test'].shape
+            return num_test / self.batch_size
         else:
             raise Exception("unknown mode")
 
@@ -414,42 +422,75 @@ class DMN_batch:
         random.shuffle(combined)
         self.train_input, self.train_q, self.train_answer, self.train_fact_count, self.train_input_mask = zip(*combined)
 
+    def convert_index_to_word(self,index):
+        return self.json_dict["ix_to_word"][str(index)]
 
-    def step(self, batch_index, mode):
-        if mode == "train" and self.mode == "test":
+    def process_vqa_data(self,mode,start,end):
+        if mode=="train":
+            inputs=self.h5file['cap_train'][start:end]
+            qs=self.h5file['ques_train'][start:end]
+            answers=self.h5file['answers'][start:end]
+
+        if mode=="test":
+            inputs=self.h5file['cap_test'][start:end]
+            qs=self.h5file['ques_test'][start:end]
+            answers=self.h5file['ans_test'][start:end]
+
+        all_x=[]
+        for i in range(self.batch_size):
+            x={"Q":"","C":"","A":1}
+            x["A"]=answers[i]
+            temp_Q=map( self.convert_index_to_word , filter( lambda x: x>0 , qs[i]  )  )
+            x["Q"]=' '.join(temp_Q)
+
+            temp_Cs=[]
+            for j in range(inputs.shape[1]):
+                temp_C=map(self.convert_index_to_word,filter(lambda x: x>0 , inputs[i][j]))
+                temp_C_str=' '.join(temp_C)
+                temp_Cs.append(temp_C_str)
+            x["C"]=' . '.join(temp_Cs)
+            all_x.append(x)
+        return self. _process_input(all_x)
+
+    def process_masks(self,captions):
+        print("captions")
+        print(captions)
+
+    def step(self,batch_index,mode):
+        if mode== "train" and self.mode== "test":
             raise Exception("Cannot train during test mode")
 
-        if mode == "train":
-            theano_fn = self.train_fn
-            inputs = self.train_input
-            qs = self.train_q
-            answers = self.train_answer
-            fact_counts = self.train_fact_count
-            input_masks = self.train_input_mask
-        if mode == "test":
-            theano_fn = self.test_fn
-            inputs = self.test_input
-            qs = self.test_q
-            answers = self.test_answer
-            fact_counts = self.test_fact_count
-            input_masks = self.test_input_mask
+        start_index=batch_index * self.batch_size
 
-        start_index = batch_index * self.batch_size
-        inp = inputs[start_index:start_index+self.batch_size]
-        q = qs[start_index:start_index+self.batch_size]
-        ans = answers[start_index:start_index+self.batch_size]
-        fact_count = fact_counts[start_index:start_index+self.batch_size]
-        input_mask = input_masks[start_index:start_index+self.batch_size]
 
-        inp, q, ans, fact_count, input_mask = self._process_batch(inp, q, ans, fact_count, input_mask)
-        ret = theano_fn(inp, q, ans, fact_count, input_mask)
-        param_norm = np.max([utils.get_norm(x.get_value()) for x in self.params])
+        inputs, qs, answers, fact_counts, input_masks=self.process_vqa_data(mode,start_index,start_index+self.batch_size)
+        if mode=="train":
+            theano_fn=self.train_fn
+           # inputs = self.process_vqa_data(self.h5file['cap_train'][start_index:start_index+self.batch_size])
+           # qs=self.process_vqa_data(self.h5file['ques_train' ][ start_index:start_index+self.batch_size] )
+           # answers=self.process_vqa_data(self.h5file['answers'][start_index:start_index+self.batch_size] )
+           # fact_counts=np.zeros(self.batch_size,dtype="int")
+           # fact_counts.fill(20)
+           # input_masks= process_masks( inputs )  # figure it out
 
-        return {"prediction": ret[0],
-                "answers": ans,
-                "current_loss": ret[1],
-                "skipped": 0,
-                "log": "pn: %.3f" % param_norm,
-                }
+        if mode=="test":
+            theano_fn=self.test_fn
+           # inputs=self.process_vqa_data( self.h5file['cap_test'][start_index:start_index+self.batch_size ]  )
+           # qs=self.process_vqa_data( self.h5file['ques_test'][start_index:start_index+self.batch_size ]  )
+           # answers=self.process_vqa_data( self.h5file['ans_test'][start_index:start_index+self.batch_size ]  )
+           # fact_counts=np.zeros(self.batch_size,dtype="int")
+           # fact_counts.fill(20)
+           # input_masks= process_masks( inputs  ) # figure it out
 
+        inp,q,ans,fact_count,input_mask=self._process_batch(inputs,qs,answers,fact_counts,input_masks )
+        ret = theano_fn( inp,q,ans,fact_count,input_mask)
+
+        param_norm=np.max( [ utils.get_norm( x.get_value()) for x  in self.params])
+
+        return { "prediction":ret[0],
+                 "answers":ans,
+                 "current_loss":ret[1],
+                 "skipped":0,
+                 "log":"pn: %.3f" % param_norm
+                 }
 
