@@ -96,9 +96,10 @@ elif args.network == 'vqa_dmn_batch':
 else:
     raise Exception("No such network known: " + args.network)
 
-
+epoch=0
 if args.load_state != "":
     dmn.load_state(args.load_state)
+    epoch=1+int(re.search("epoch(\d)+",x).group(1))
 
 
 def do_epoch(mode, epoch, skipped=0):
@@ -160,7 +161,7 @@ def do_epoch(mode, epoch, skipped=0):
 if args.mode == 'train':
     print "==> training"
     skipped = 0
-    for epoch in range(args.epochs):
+    while epoch < (args.epochs):
         start_time = time.time()
 
         if args.shuffle:
@@ -177,6 +178,7 @@ if args.mode == 'train':
             dmn.save_params(state_name, epoch)
 
         print "epoch %d took %.3fs" % (epoch, float(time.time()) - start_time)
+        epoch=epoch+1
 
 elif args.mode == 'test':
     file = open('last_tested_model.json', 'w+')
