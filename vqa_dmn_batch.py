@@ -12,7 +12,7 @@ import cPickle as pickle
 
 import utils
 import nn_utils
-
+import re
 import copy
 import json
 import h5py
@@ -164,7 +164,7 @@ class VQA_DMN_batch:
 
             # TODO: add conditional ending
             dummy = theano.shared(np.zeros((self.vocab_size, self.batch_size), dtype=floatX))
-            results, updates = theano.scan(fn=self.answer_step,
+            results, updates = theano.scan(fn=answer_step,
                 outputs_info=[last_mem, T.zeros_like(dummy)], #(last_mem, y)
                 n_steps=1)
             self.prediction = results[1][-1]
@@ -198,7 +198,8 @@ class VQA_DMN_batch:
 
         self.loss = self.loss_ce + self.loss_l2
 
-        updates = lasagne.updates.adadelta(self.loss, self.params)
+        updates=lasagne.updates.adam(self.loss,self.params)
+        #updates = lasagne.updates.adadelta(self.loss, self.params)
         #updates = lasagne.updates.momentum(self.loss, self.params, learning_rate=0.001)
 
         if self.mode == 'train':
@@ -362,9 +363,12 @@ class VQA_DMN_batch:
         input_masks = []
 
         for x in data_raw:
-            inp = x["C"].lower().split(' ')
+            #inp = x["C"].lower().split(' ')
+            x["C"]=x["C"].lower()
+            inp=re.split("[, \-!?:'\/]+",x["C"])
             inp = [w for w in inp if len(w) > 0]
-            q = x["Q"].lower().split(' ')
+            x["Q"]=x["Q"].lower()
+            q = re.split("[, \-!?:'\/]+",x["Q"])
             q = [w for w in q if len(w) > 0]
 
             inp_vector = [utils.process_word(word = w,
