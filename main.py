@@ -4,7 +4,7 @@ import sklearn.metrics as metrics
 import argparse
 import time
 import json
-
+import re
 import utils
 import nn_utils
 import h5py
@@ -13,8 +13,8 @@ print "==> parsing input arguments"
 parser = argparse.ArgumentParser()
 
 parser.add_argument('--network', type=str, default="vqa_dmn_batch", help='network type: dmn_basic, dmn_smooth, vqa_dmn_batch or dmn_batch')
-parser.add_argument('--word_vector_size', type=int, default=100, help='embeding size (50, 100, 200, 300 only)')
-parser.add_argument('--dim', type=int, default=80, help='number of hidden units in input module GRU')
+parser.add_argument('--word_vector_size', type=int, default=300, help='embeding size (50, 100, 200, 300 only)')
+parser.add_argument('--dim', type=int, default=320, help='number of hidden units in input module GRU')
 parser.add_argument('--epochs', type=int, default=500, help='number of epochs')
 parser.add_argument('--load_state', type=str, default="", help='state file path')
 parser.add_argument('--answer_module', type=str, default="recurrent", help='answer module type: feedforward or recurrent')
@@ -35,6 +35,7 @@ parser.add_argument('--batch_norm', type=bool, default=False, help='batch normal
 parser.add_argument('--h5file',type=str,default="data/vqa_fact_data_prepro.h5",help="The h5 file containing ")
 parser.add_argument('--json_dict_file',type=str,default="data/vqa_fact_data_prepro.json",help="The json file containing dicts")
 parser.add_argument('--num_answers',type=int,default=1000,help="The number of answers")
+parser.add_argument('--learning_rate_decay',type=float,default=0.5,help="The learning rate decay")
 parser.set_defaults(shuffle=True)
 args = parser.parse_args()
 
@@ -62,7 +63,7 @@ args_dict['babi_train_raw'] = babi_train_raw
 args_dict['babi_test_raw'] = babi_test_raw
 args_dict['word2vec'] = word2vec
 
-
+accuracies=[]
 # init class
 if args.network == 'dmn_batch':
     import dmn_batch
@@ -99,7 +100,7 @@ else:
 epoch=0
 if args.load_state != "":
     dmn.load_state(args.load_state)
-    epoch=1+int(re.search("epoch(\d)+",x).group(1))
+    epoch=1+int(re.search("epoch(\d)+",args.load_state).group(1))
 
 
 def do_epoch(mode, epoch, skipped=0):
@@ -155,6 +156,8 @@ def do_epoch(mode, epoch, skipped=0):
     accuracy = sum([1 if t == p else 0 for t, p in zip(y_true, y_pred)])
     print "accuracy: %.2f percent" % (accuracy * 100.0 / batches_per_epoch / args.batch_size)
 
+    if len(accuracies)>0 and accuracies[-1]>accuracy:
+        dmn.lr=dmn.lr*args.learning_rate_decay
     return avg_loss, skipped
 
 
