@@ -22,7 +22,7 @@ class VQA_DMN_batch:
 
     def __init__(self, babi_train_raw, babi_test_raw, word2vec, word_vector_size, dim,
                 mode, answer_module, input_mask_mode, memory_hops, batch_size, l2,
-                normalize_attention, batch_norm, dropout,h5file,json_dict_file ,num_answers, **kwargs):
+                normalize_attention, batch_norm, dropout,h5file,json_dict_file ,num_answers,img_vector_size **kwargs):
 
         print "==> not used params in DMN class:", kwargs.keys()
 
@@ -42,6 +42,8 @@ class VQA_DMN_batch:
         self.batch_norm = batch_norm
         self.dropout = dropout
         self.h5file=h5py.File(h5file,"r")
+
+        self.img_vector_size=img_vector_size
         with open (json_dict_file) as f:
             self.json_dict=json.load(f)
 
@@ -51,6 +53,7 @@ class VQA_DMN_batch:
         self.vocab_size=num_answers
 
         self.input_var = T.tensor3('input_var') # (batch_size, seq_len, glove_dim)
+        self.img_input_var=T.tensor3('img_input_var') # (batch_size , img_seq_len , img_feature_dim)
         self.q_var = T.tensor3('question_var') # as self.input_var
         self.answer_var = T.ivector('answer_var') # answer of example in minibatch
         self.fact_count_var = T.ivector('fact_count_var') # number of facts in the example of minibatch
@@ -87,6 +90,41 @@ class VQA_DMN_batch:
         self.inp_c = T.stack(inp_c_list).dimshuffle(1, 2, 0)
         inp_c_mask = T.stack(inp_c_mask_list).dimshuffle(1, 0)
 
+###################### Adding the Image Input Module
+
+        print "==> building image img_input module"
+        self.W_img_inp_res_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.img_vector_size))
+        self.W_img_inp_res_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        self.b_img_inp_res = nn_utils.constant_param(value=0.0, shape=(self.dim,))
+
+        self.W_img_inp_upd_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.img_vector_size))
+        self.W_img_inp_upd_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        self.b_img_inp_upd = nn_utils.constant_param(value=0.0, shape=(self.dim,))
+
+        self.W_img_inp_hid_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.img_vector_size))
+        self.W_img_inp_hid_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        self.b_img_inp_hid = nn_utils.constant_param(value=0.0, shape=(self.dim,))
+
+        img_input_var_shuffled = self.img_input_var.dimshuffle(1, 2, 0)
+        img_inp_dummy = theano.shared(np.zeros((self.dim, self.batch_size), dtype=floatX))
+        img_inp_c_history, _ = theano.scan(fn=self.img_input_gru_step,
+                            sequences=img_input_var_shuffled,
+                            outputs_info=T.zeros_like(img_inp_dummy))
+
+        img_inp_c_history_shuffled = img_inp_c_history.dimshuffle(2, 0, 1)
+
+        img_inp_c_list = []
+        img_inp_c_mask_list = []
+        for batch_index in range(self.batch_size):
+            taken = img_inp_c_history_shuffled[batch_index].take(self.img_input_mask_var[batch_index, :self.fact_count_var[batch_index]], axis=0)
+            img_inp_c_list.append(T.concatenate([taken, T.zeros((self.img_input_mask_var.shape[1] - taken.shape[0], self.dim), floatX)]))
+            img_inp_c_mask_list.append(T.concatenate([T.ones((taken.shape[0],), np.int32), T.zeros((self.img_input_mask_var.shape[1] - taken.shape[0],), np.int32)]))
+
+        self.img_inp_c = T.stack(img_inp_c_list).dimshuffle(1, 2, 0)
+        img_inp_c_mask = T.stack(img_inp_c_mask_list).dimshuffle(1, 0)
+
+
+###################################################
         q_var_shuffled = self.q_var.dimshuffle(1, 2, 0)
         q_dummy = theano.shared(np.zeros((self.dim, self.batch_size), dtype=floatX))
         q_q_history, _ = theano.scan(fn=self.input_gru_step,
@@ -126,7 +164,51 @@ class VQA_DMN_batch:
 
         last_mem_raw = memory[-1].dimshuffle((1, 0))
 
-        net = layers.InputLayer(shape=(self.batch_size, self.dim), input_var=last_mem_raw)
+################################# Episodic Memory Module for Image
+
+        print "==> creating parameters for image memory module"
+        self.W_img_mem_res_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        self.W_img_mem_res_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        self.b_img_mem_res = nn_utils.constant_param(value=0.0, shape=(self.dim,))
+
+        self.W_img_mem_upd_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        self.W_img_mem_upd_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        self.b_img_mem_upd = nn_utils.constant_param(value=0.0, shape=(self.dim,))
+
+        self.W_img_mem_hid_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        self.W_img_mem_hid_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        self.b_img_mem_hid = nn_utils.constant_param(value=0.0, shape=(self.dim,))
+
+        self.W_img_b = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        self.W_img_1 = nn_utils.normal_param(std=0.1, shape=(self.dim, 7 * self.dim + 0))
+        self.W_img_2 = nn_utils.normal_param(std=0.1, shape=(1, self.dim))
+        self.b_img_1 = nn_utils.constant_param(value=0.0, shape=(self.dim,))
+        self.b_img_2 = nn_utils.constant_param(value=0.0, shape=(1,))
+
+
+        print "==> building episodic img_memory module (fixed number of steps: %d)" % self.memory_hops
+        img_memory = [self.q_q.copy()]
+        for iter in range(1, self.memory_hops + 1):
+            current_episode = self.new_episode(img_memory[iter - 1])
+            img_memory.append(self.GRU_update(img_memory[iter - 1], current_episode,
+                                          self.W_img_mem_res_in, self.W_img_mem_res_hid, self.b_img_mem_res,
+                                          self.W_img_mem_upd_in, self.W_img_mem_upd_hid, self.b_img_mem_upd,
+                                          self.W_img_mem_hid_in, self.W_img_mem_hid_hid, self.b_img_mem_hid))
+
+        last_img_mem_raw = img_memory[-1].dimshuffle((1, 0))
+
+
+
+
+#######################################################################
+
+        ### Concatenating The 2 Memory Modules Representations Assuming the representation as self.batch_size x self.dim  ###
+
+        combined_mem_raw=T.concatenate([last_mem_raw,last_img_mem_raw],axis=0)
+
+        #net = layers.InputLayer(shape=(self.batch_size, self.dim), input_var=last_mem_raw)
+
+        net = layers.InputLayer(shape=(self.batch_size, self.dim+self.dim), input_var=combined_mem_raw)
         if self.batch_norm:
             net = layers.BatchNormLayer(incoming=net)
         if self.dropout > 0 and self.mode == 'train':
@@ -135,23 +217,23 @@ class VQA_DMN_batch:
 
 
         print "==> building answer module"
-        self.W_a = nn_utils.normal_param(std=0.1, shape=(self.vocab_size, self.dim))
-
+        #self.W_a = nn_utils.normal_param(std=0.1, shape=(self.vocab_size, self.dim))
+        self.W_a = nn_utils.normal_param(std=0.1, shape=(self.vocab_size, self.dim+self.dim))
         if self.answer_module == 'feedforward':
             self.prediction = nn_utils.softmax(T.dot(self.W_a, last_mem))
 
         elif self.answer_module == 'recurrent':
-            self.W_ans_res_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim + self.vocab_size))
-            self.W_ans_res_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
-            self.b_ans_res = nn_utils.constant_param(value=0.0, shape=(self.dim,))
+            self.W_ans_res_in = nn_utils.normal_param(std=0.1, shape=(2*self.dim, 2*self.dim + self.vocab_size))
+            self.W_ans_res_hid = nn_utils.normal_param(std=0.1, shape=(2*self.dim, 2*self.dim))
+            self.b_ans_res = nn_utils.constant_param(value=0.0, shape=(2*self.dim,))
 
-            self.W_ans_upd_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim + self.vocab_size))
-            self.W_ans_upd_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
-            self.b_ans_upd = nn_utils.constant_param(value=0.0, shape=(self.dim,))
+            self.W_ans_upd_in = nn_utils.normal_param(std=0.1, shape=(2*self.dim, 2*self.dim + self.vocab_size))
+            self.W_ans_upd_hid = nn_utils.normal_param(std=0.1, shape=(2*self.dim,2*self.dim))
+            self.b_ans_upd = nn_utils.constant_param(value=0.0, shape=(2*self.dim,))
 
-            self.W_ans_hid_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim + self.vocab_size))
-            self.W_ans_hid_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
-            self.b_ans_hid = nn_utils.constant_param(value=0.0, shape=(self.dim,))
+            self.W_ans_hid_in = nn_utils.normal_param(std=0.1, shape=(2*self.dim, 2*self.dim + self.vocab_size))
+            self.W_ans_hid_hid = nn_utils.normal_param(std=0.1, shape=(2*self.dim, 2*self.dim))
+            self.b_ans_hid = nn_utils.constant_param(value=0.0, shape=(2*self.dim,))
 
             def answer_step(prev_a, prev_y):
                 a = self.GRU_update(prev_a, T.concatenate([prev_y, self.q_q]),
@@ -175,6 +257,13 @@ class VQA_DMN_batch:
         self.prediction = self.prediction.dimshuffle(1, 0)
 
         self.params = [self.W_inp_res_in, self.W_inp_res_hid, self.b_inp_res,
+                  self.W_inp_upd_in, self.W_inp_upd_hid, self.b_inp_upd,
+                  self.W_inp_hid_in, self.W_inp_hid_hid, self.b_inp_hid,
+                  self.W_mem_res_in, self.W_mem_res_hid, self.b_mem_res,
+                  self.W_mem_upd_in, self.W_mem_upd_hid, self.b_mem_upd,
+                  self.W_mem_hid_in, self.W_mem_hid_hid, self.b_mem_hid, #self.W_b
+                  self.W_1, self.W_2, self.b_1, self.b_2, self.W_a,
+                  self.W_inp_res_in, self.W_inp_res_hid, self.b_inp_res,
                   self.W_inp_upd_in, self.W_inp_upd_hid, self.b_inp_upd,
                   self.W_inp_hid_in, self.W_inp_hid_hid, self.b_inp_hid,
                   self.W_mem_res_in, self.W_mem_res_hid, self.b_mem_res,
@@ -256,6 +345,15 @@ class VQA_DMN_batch:
         G = T.nnet.sigmoid(l_2)[0]
         return G
 
+    def new_img_attention_step(self, ct, prev_g, mem, q_q):
+        z = T.concatenate([ct, mem, q_q, ct * q_q, ct * mem, (ct - q_q) ** 2, (ct - mem) ** 2], axis=0)
+
+        l_1 = T.dot(self.W_img_1, z) + self.b_img_1.dimshuffle(0, 'x')
+        l_1 = T.tanh(l_1)
+        l_2 = T.dot(self.W_img_2, l_1) + self.b_img_2.dimshuffle(0, 'x')
+        G = T.nnet.sigmoid(l_2)[0]
+        return G
+
 
     def new_episode_step(self, ct, g, prev_h):
         gru = self.GRU_update(prev_h, ct,
@@ -285,6 +383,33 @@ class VQA_DMN_batch:
             e_list.append(e[self.fact_count_var[index] - 1, :, index])
         return T.stack(e_list).dimshuffle((1, 0))
 
+    def new_img_episode_step(self, ct, g, prev_h):
+        gru = self.GRU_update(prev_h, ct,
+                             self.W_img_mem_res_in, self.W_img_mem_res_hid, self.b_img_mem_res,
+                             self.W_img_mem_upd_in, self.W_img_mem_upd_hid, self.b_img_mem_upd,
+                             self.W_img_mem_hid_in, self.W_img_mem_hid_hid, self.b_img_mem_hid)
+
+        h = g * gru + (1 - g) * prev_h
+        return h
+
+
+    def new_img_episode(self, mem):
+        g, g_updates = theano.scan(fn=self.new_img_attention_step,
+            sequences=self.inp_c,
+            non_sequences=[mem, self.q_q],
+            outputs_info=T.zeros_like(self.inp_c[0][0]))
+
+        if (self.normalize_attention):
+            g = nn_utils.softmax(g)
+
+        e, e_updates = theano.scan(fn=self.new_img_episode_step,
+            sequences=[self.inp_c, g],
+            outputs_info=T.zeros_like(self.inp_c[0]))
+
+        e_list = []
+        for index in range(self.batch_size):
+            e_list.append(e[self.fact_count_var[index] - 1, :, index])
+        return T.stack(e_list).dimshuffle((1, 0))
 
     def save_params(self, file_name, epoch, **kwargs):
         with open(file_name, 'w') as save_file:
