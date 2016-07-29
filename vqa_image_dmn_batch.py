@@ -22,7 +22,8 @@ class VQA_DMN_batch:
 
     def __init__(self, babi_train_raw, babi_test_raw, word2vec, word_vector_size, dim,
                 mode, answer_module, input_mask_mode, memory_hops, batch_size, l2,
-                normalize_attention, batch_norm, dropout,h5file,json_dict_file ,num_answers,img_vector_size **kwargs):
+                normalize_attention, batch_norm, dropout,h5file,json_dict_file ,num_answers,img_vector_size,img_seq_len,
+                img_h5file_train,img_h5file_test,**kwargs):
 
         print "==> not used params in DMN class:", kwargs.keys()
 
@@ -42,18 +43,21 @@ class VQA_DMN_batch:
         self.batch_norm = batch_norm
         self.dropout = dropout
         self.h5file=h5py.File(h5file,"r")
+        self.img_h5file_train=h5py.File(img_h5file_train,"r")
+        self.img_h5file_test=h5py.File(img_h5file_test,"r")
+        self.img_seq_len=img_seq_len
 
         self.img_vector_size=img_vector_size
         with open (json_dict_file) as f:
             self.json_dict=json.load(f)
 
-        self.train_input, self.train_q, self.train_answer, self.train_fact_count, self.train_input_mask = self._process_input(babi_train_raw)
-        self.test_input, self.test_q, self.test_answer, self.test_fact_count, self.test_input_mask = self._process_input(babi_test_raw)
+        #self.train_input, self.train_q, self.train_answer, self.train_fact_count, self.train_input_mask  = self._process_input(babi_train_raw)
+        #self.test_input, self.test_q, self.test_answer, self.test_fact_count, self.test_input_mask  = self._process_input(babi_test_raw)
         #self.vocab_size = len(self.vocab)
         self.vocab_size=num_answers
 
         self.input_var = T.tensor3('input_var') # (batch_size, seq_len, glove_dim)
-        self.img_input_var=T.tensor3('img_input_var') # (batch_size , img_seq_len , img_feature_dim)
+        self.img_input_var=T.tensor3('img_input_var') # (batch_size , img_seq_len , img_vector_size)
         self.q_var = T.tensor3('question_var') # as self.input_var
         self.answer_var = T.ivector('answer_var') # answer of example in minibatch
         self.fact_count_var = T.ivector('fact_count_var') # number of facts in the example of minibatch
@@ -93,36 +97,15 @@ class VQA_DMN_batch:
 ###################### Adding the Image Input Module
 
         print "==> building image img_input module"
-        self.W_img_inp_res_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.img_vector_size))
-        self.W_img_inp_res_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
-        self.b_img_inp_res = nn_utils.constant_param(value=0.0, shape=(self.dim,))
+        ### Don't Really Need the GRU to reduce the sentences into vectors ###
+        img_input_var=T.reshape(img_input_var , ( self.batch_size * self.img_seq_len , self.img_vector_size ))
 
-        self.W_img_inp_upd_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.img_vector_size))
-        self.W_img_inp_upd_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
-        self.b_img_inp_upd = nn_utils.constant_param(value=0.0, shape=(self.dim,))
+        ## Convert the img_vector_size to self.dim using a MLP ##
+        img_input_var_dim=layers.DenseLayer( img_input_var , num_units=self.dim )
 
-        self.W_img_inp_hid_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.img_vector_size))
-        self.W_img_inp_hid_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
-        self.b_img_inp_hid = nn_utils.constant_param(value=0.0, shape=(self.dim,))
+        img_input_var_dim=T.reshape(img_input_var_dim ,(self.batch_size , self.img_seq_len , self.dim )  )
 
-        img_input_var_shuffled = self.img_input_var.dimshuffle(1, 2, 0)
-        img_inp_dummy = theano.shared(np.zeros((self.dim, self.batch_size), dtype=floatX))
-        img_inp_c_history, _ = theano.scan(fn=self.img_input_gru_step,
-                            sequences=img_input_var_shuffled,
-                            outputs_info=T.zeros_like(img_inp_dummy))
-
-        img_inp_c_history_shuffled = img_inp_c_history.dimshuffle(2, 0, 1)
-
-        img_inp_c_list = []
-        img_inp_c_mask_list = []
-        for batch_index in range(self.batch_size):
-            taken = img_inp_c_history_shuffled[batch_index].take(self.img_input_mask_var[batch_index, :self.fact_count_var[batch_index]], axis=0)
-            img_inp_c_list.append(T.concatenate([taken, T.zeros((self.img_input_mask_var.shape[1] - taken.shape[0], self.dim), floatX)]))
-            img_inp_c_mask_list.append(T.concatenate([T.ones((taken.shape[0],), np.int32), T.zeros((self.img_input_mask_var.shape[1] - taken.shape[0],), np.int32)]))
-
-        self.img_inp_c = T.stack(img_inp_c_list).dimshuffle(1, 2, 0)
-        img_inp_c_mask = T.stack(img_inp_c_mask_list).dimshuffle(1, 0)
-
+        self.img_inp_c = T.stack(img_input_var_dim).dimshuffle(1, 2, 0)
 
 ###################################################
         q_var_shuffled = self.q_var.dimshuffle(1, 2, 0)
@@ -189,7 +172,7 @@ class VQA_DMN_batch:
         print "==> building episodic img_memory module (fixed number of steps: %d)" % self.memory_hops
         img_memory = [self.q_q.copy()]
         for iter in range(1, self.memory_hops + 1):
-            current_episode = self.new_episode(img_memory[iter - 1])
+            current_episode = self.new_img_episode(img_memory[iter - 1])
             img_memory.append(self.GRU_update(img_memory[iter - 1], current_episode,
                                           self.W_img_mem_res_in, self.W_img_mem_res_hid, self.b_img_mem_res,
                                           self.W_img_mem_upd_in, self.W_img_mem_upd_hid, self.b_img_mem_upd,
@@ -262,14 +245,15 @@ class VQA_DMN_batch:
                   self.W_mem_res_in, self.W_mem_res_hid, self.b_mem_res,
                   self.W_mem_upd_in, self.W_mem_upd_hid, self.b_mem_upd,
                   self.W_mem_hid_in, self.W_mem_hid_hid, self.b_mem_hid, #self.W_b
-                  self.W_1, self.W_2, self.b_1, self.b_2, self.W_a,
-                  self.W_inp_res_in, self.W_inp_res_hid, self.b_inp_res,
-                  self.W_inp_upd_in, self.W_inp_upd_hid, self.b_inp_upd,
-                  self.W_inp_hid_in, self.W_inp_hid_hid, self.b_inp_hid,
-                  self.W_mem_res_in, self.W_mem_res_hid, self.b_mem_res,
-                  self.W_mem_upd_in, self.W_mem_upd_hid, self.b_mem_upd,
-                  self.W_mem_hid_in, self.W_mem_hid_hid, self.b_mem_hid, #self.W_b
-                  self.W_1, self.W_2, self.b_1, self.b_2, self.W_a]
+                  self.W_1, self.W_2, self.b_1, self.b_2, self.W_a,  ## Add the parameters of the Image Input Module
+                  self.W_img_mem_res_in, self.W_img_mem_res_hid, self.b_img_mem_res,
+                  self.W_img_mem_upd_in, self.W_img_mem_upd_hid, self.b_img_mem_upd,
+                  self.W_img_mem_hid_in, self.W_img_mem_hid_hid, self.b_img_mem_hid, #self.W_img_b_img
+                  self.W_img_1, self.W_img_2, self.b_img_1, self.b_img_2, self.W_img_a]  ## Add the parameters of the Image Input Module
+
+        dim_transform_mlp_params=layers.get_all_params(img_input_var_dim )
+
+        self.params=self.params+ dim_transform_mlp_params
 
         if self.answer_module == 'recurrent':
             self.params = self.params + [self.W_ans_res_in, self.W_ans_res_hid, self.b_ans_res,
@@ -295,13 +279,13 @@ class VQA_DMN_batch:
         if self.mode == 'train':
             print "==> compiling train_fn"
             self.train_fn = theano.function(inputs=[self.input_var, self.q_var, self.answer_var,
-                                                    self.fact_count_var, self.input_mask_var,self.learning_rate],
+                                                    self.fact_count_var, self.input_mask_var,self.img_input_var,self.learning_rate],
                                             outputs=[self.prediction, self.loss],
                                             updates=updates)
 
         print "==> compiling test_fn"
         self.test_fn = theano.function(inputs=[self.input_var, self.q_var, self.answer_var,
-                                               self.fact_count_var, self.input_mask_var,self.learning_rate],on_unused_input='ignore',
+                                               self.fact_count_var, self.input_mask_var,self.img_input_var,self.learning_rate],on_unused_input='ignore',
                                        outputs=[self.prediction, self.loss])
 
 
@@ -395,7 +379,7 @@ class VQA_DMN_batch:
 
     def new_img_episode(self, mem):
         g, g_updates = theano.scan(fn=self.new_img_attention_step,
-            sequences=self.inp_c,
+            sequences=self.img_inp_c,
             non_sequences=[mem, self.q_q],
             outputs_info=T.zeros_like(self.inp_c[0][0]))
 
@@ -433,19 +417,20 @@ class VQA_DMN_batch:
                 x.set_value(y)
 
 
-    def _process_batch(self, _inputs, _questions, _answers, _fact_counts, _input_masks):
+    def _process_batch(self, _inputs, _questions, _answers, _fact_counts, _input_masks , _img_feat):
         inputs = copy.deepcopy(_inputs)
         questions = copy.deepcopy(_questions)
         answers = copy.deepcopy(_answers)
         fact_counts = copy.deepcopy(_fact_counts)
         input_masks = copy.deepcopy(_input_masks)
+        img_feats=copy.deepcopy(_img_feats)
 
-        zipped = zip(inputs, questions, answers, fact_counts, input_masks)
+        zipped = zip(inputs, questions, answers, fact_counts, input_masks,img_feats)
 
         max_inp_len = 0
         max_q_len = 0
         max_fact_count = 0
-        for inp, q, ans, fact_count, input_mask in zipped:
+        for inp, q, ans, fact_count, input_mask,img_feat in zipped:
             max_inp_len = max(max_inp_len, len(inp))
             max_q_len = max(max_q_len, len(q))
             max_fact_count = max(max_fact_count, fact_count)
@@ -455,8 +440,9 @@ class VQA_DMN_batch:
         answers = []
         fact_counts = []
         input_masks = []
+        img_feats= []
 
-        for inp, q, ans, fact_count, input_mask in zipped:
+        for inp, q, ans, fact_count, input_mask , img_feat in zipped:
             while(len(inp) < max_inp_len):
                 inp.append(self._empty_word_vector())
 
@@ -471,14 +457,16 @@ class VQA_DMN_batch:
             answers.append(ans)
             fact_counts.append(fact_count)
             input_masks.append(input_mask)
+            img_feats.append(img_feat)
 
         inputs = np.array(inputs).astype(floatX)
         questions = np.array(questions).astype(floatX)
         answers = np.array(answers).astype(np.int32)
         fact_counts = np.array(fact_counts).astype(np.int32)
         input_masks = np.array(input_masks).astype(np.int32)
+        img_feats=np.array(img_feats).astype(floatX)
 
-        return inputs, questions, answers, fact_counts, input_masks
+        return inputs, questions, answers, fact_counts, input_masks,img_feats
 
 
     def _process_input(self, data_raw):
@@ -487,7 +475,7 @@ class VQA_DMN_batch:
         answers = []
         fact_counts = []
         input_masks = []
-
+        img_features=[]
         for x in data_raw:
             #inp = x["C"].lower().split(' ')
             x["C"]=x["C"].lower()
@@ -531,8 +519,9 @@ class VQA_DMN_batch:
             answers.append(x["A"])
             fact_counts.append(fact_count)
             input_masks.append(input_mask)
+            img_features.append(x["I"])
 
-        return inputs, questions, answers, fact_counts, input_masks
+        return inputs, questions, answers, fact_counts, input_masks , img_features
 
 
     def get_batches_per_epoch(self, mode):
@@ -548,9 +537,9 @@ class VQA_DMN_batch:
 
     def shuffle_train_set(self):
         print "==> Shuffling the train set"
-        combined = zip(self.train_input, self.train_q, self.train_answer, self.train_fact_count, self.train_input_mask)
-        random.shuffle(combined)
-        self.train_input, self.train_q, self.train_answer, self.train_fact_count, self.train_input_mask = zip(*combined)
+        #combined = zip(self.train_input, self.train_q, self.train_answer, self.train_fact_count, self.train_input_mask)
+        #random.shuffle(combined)
+        #self.train_input, self.train_q, self.train_answer, self.train_fact_count, self.train_input_mask = zip(*combined)
 
     def convert_index_to_word(self,index):
         return self.json_dict["ix_to_word"][str(index)]
@@ -560,15 +549,17 @@ class VQA_DMN_batch:
             inputs=self.h5file['cap_train'][start:end]
             qs=self.h5file['ques_train'][start:end]
             answers=self.h5file['answers'][start:end]
+            img_indices=self.h5file['img_pos_train'][start:end]
 
         if mode=="test":
             inputs=self.h5file['cap_test'][start:end]
             qs=self.h5file['ques_test'][start:end]
             answers=self.h5file['ans_test'][start:end]
+            img_indices=self.h5file['img_pos_test'][start:end]
 
         all_x=[]
         for i in range(self.batch_size):
-            x={"Q":"","C":"","A":1}
+            x={}
             x["A"]=answers[i]-1
             temp_Q=map( self.convert_index_to_word , filter( lambda x: x>0 , qs[i]  )  )
             x["Q"]=' '.join(temp_Q)
@@ -579,6 +570,11 @@ class VQA_DMN_batch:
                 temp_C_str=' '.join(temp_C)
                 temp_Cs.append(temp_C_str)
             x["C"]=' . '.join(temp_Cs)
+            if mode=="train":
+                x["I"]=img_h5file_train['images_train'][ img_indices[i]-1].reshape((196,512))
+            if mode=="test"
+                x["I"]=img_h5file_test['images_test'][ img_indices[i]-1].reshape((196,512))
+
             all_x.append(x)
         return self. _process_input(all_x)
 
@@ -593,7 +589,7 @@ class VQA_DMN_batch:
         start_index=batch_index * self.batch_size
 
 
-        inputs, qs, answers, fact_counts, input_masks=self.process_vqa_data(mode,start_index,start_index+self.batch_size)
+        inputs, qs, answers, fact_counts, input_masks,img_feats =self.process_vqa_data(mode,start_index,start_index+self.batch_size)
         if mode=="train":
             theano_fn=self.train_fn
            # inputs = self.process_vqa_data(self.h5file['cap_train'][start_index:start_index+self.batch_size])
@@ -612,8 +608,8 @@ class VQA_DMN_batch:
            # fact_counts.fill(20)
            # input_masks= process_masks( inputs  ) # figure it out
 
-        inp,q,ans,fact_count,input_mask=self._process_batch(inputs,qs,answers,fact_counts,input_masks )
-        ret = theano_fn( inp,q,ans,fact_count,input_mask,self.lr)
+        inp,q,ans,fact_count,input_mask,img_feat=self._process_batch(inputs,qs,answers,fact_counts,input_masks,img_feats )
+        ret = theano_fn( inp,q,ans,fact_count,input_mask,image_feat,self.lr)
 
         param_norm=np.max( [ utils.get_norm( x.get_value()) for x  in self.params])
 
