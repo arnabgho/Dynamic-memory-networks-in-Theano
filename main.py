@@ -12,7 +12,7 @@ from progress.bar import Bar
 print "==> parsing input arguments"
 parser = argparse.ArgumentParser()
 
-parser.add_argument('--network', type=str, default="vqa_dmn_batch", help='network type: dmn_basic, dmn_smooth, vqa_dmn_batch or dmn_batch')
+parser.add_argument('--network', type=str, default="vqa_image_dmn_batch", help='network type: dmn_basic, dmn_smooth, vqa_dmn_batch,vqa_image_dmn_batch or dmn_batch')
 parser.add_argument('--word_vector_size', type=int, default=300, help='embeding size (50, 100, 200, 300 only)')
 parser.add_argument('--dim', type=int, default=320, help='number of hidden units in input module GRU')
 parser.add_argument('--epochs', type=int, default=500, help='number of epochs')
@@ -31,11 +31,16 @@ parser.add_argument('--prefix', type=str, default="", help='optional prefix of n
 parser.add_argument('--no-shuffle', dest='shuffle', action='store_false')
 parser.add_argument('--babi_test_id', type=str, default="", help='babi_id of test set (leave empty to use --babi_id)')
 parser.add_argument('--dropout', type=float, default=0.5, help='dropout rate (between 0 and 1)')
-parser.add_argument('--batch_norm', type=bool, default=False, help='batch normalization')
+parser.add_argument('--batch_norm', type=bool, default=True, help='batch normalization')
 parser.add_argument('--h5file',type=str,default="data/vqa_fact_data_prepro.h5",help="The h5 file containing ")
 parser.add_argument('--json_dict_file',type=str,default="data/vqa_fact_data_prepro.json",help="The json file containing dicts")
 parser.add_argument('--num_answers',type=int,default=1000,help="The number of answers")
 parser.add_argument('--learning_rate_decay',type=float,default=0.5,help="The learning rate decay")
+parser.add_argument('--img_h5file_train',type=str,default="data/vqa_data_img_vgg_train.h5",help="The h5 file containing img features")
+parser.add_argument('--img_h5file_test',type=str,default="data/vqa_data_img_vgg_test.h5",help="The h5 file containing img features")
+parser.add_argument('--img_seq_len',type=int,default=196,help="The number of image memories present")
+parser.add_argument('--img_vector_size',type=int,default=512,help="The img memory size")
+
 parser.set_defaults(shuffle=True)
 args = parser.parse_args()
 
@@ -93,6 +98,12 @@ elif args.network == 'dmn_qa':
 elif args.network == 'vqa_dmn_batch':
     import vqa_dmn_batch
     dmn=vqa_dmn_batch.VQA_DMN_batch(**args_dict)
+
+elif args.network == 'vqa_image_dmn_batch':
+    import vqa_image_dmn_batch
+    dmn=vqa_image_dmn_batch.VQA_IMAGE_DMN_batch(**args_dict)
+
+
 
 else:
     raise Exception("No such network known: " + args.network)
@@ -158,6 +169,7 @@ def do_epoch(mode, epoch, skipped=0):
 
     if len(accuracies)>0 and accuracies[-1]>accuracy:
         dmn.lr=dmn.lr*args.learning_rate_decay
+    accuracies.append(accuracy)
     return avg_loss, skipped
 
 

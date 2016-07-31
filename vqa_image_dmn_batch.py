@@ -18,9 +18,9 @@ import json
 import h5py
 floatX = theano.config.floatX
 
-class VQA_DMN_batch:
+class VQA_IMAGE_DMN_batch:
 
-    def __init__(self, babi_train_raw, babi_test_raw, word2vec, word_vector_size, dim,
+    def __init__(self,word2vec, word_vector_size, dim,
                 mode, answer_module, input_mask_mode, memory_hops, batch_size, l2,
                 normalize_attention, batch_norm, dropout,h5file,json_dict_file ,num_answers,img_vector_size,img_seq_len,
                 img_h5file_train,img_h5file_test,**kwargs):
@@ -57,7 +57,7 @@ class VQA_DMN_batch:
         self.vocab_size=num_answers
 
         self.input_var = T.tensor3('input_var') # (batch_size, seq_len, glove_dim)
-        self.img_input_var=T.tensor3('img_input_var') # (batch_size , img_seq_len , img_vector_size)
+        self.img_input_var=T.tensor3('img_input_var') # (batch_size * img_seq_len , img_vector_size)
         self.q_var = T.tensor3('question_var') # as self.input_var
         self.answer_var = T.ivector('answer_var') # answer of example in minibatch
         self.fact_count_var = T.ivector('fact_count_var') # number of facts in the example of minibatch
@@ -98,15 +98,20 @@ class VQA_DMN_batch:
 
         print "==> building image img_input module"
         ### Don't Really Need the GRU to reduce the sentences into vectors ###
-        img_input_var=T.reshape(img_input_var , ( self.batch_size * self.img_seq_len , self.img_vector_size ))
+        self.img_input_var=T.reshape(self.img_input_var , ( self.batch_size * self.img_seq_len , self.img_vector_size ))
+
+        img_input_layer=layers.InputLayer( shape=(self.batch_size*self.img_seq_len, self.img_vector_size), input_var=self.img_input_var)
 
         ## Convert the img_vector_size to self.dim using a MLP ##
-        img_input_var_dim=layers.DenseLayer( img_input_var , num_units=self.dim )
+        img_input_layer=layers.DenseLayer( img_input_layer , num_units=self.dim )
+
+        img_input_var_dim=layers.get_output(img_input_layer)
 
         img_input_var_dim=T.reshape(img_input_var_dim ,(self.batch_size , self.img_seq_len , self.dim )  )
 
-        self.img_inp_c = T.stack(img_input_var_dim).dimshuffle(1, 2, 0)
+        #self.img_inp_c = T.stack(img_input_var_dim).dimshuffle(1, 2, 0)
 
+        self.img_inp_c = img_input_var_dim.dimshuffle(1,2,0)
 ###################################################
         q_var_shuffled = self.q_var.dimshuffle(1, 2, 0)
         q_dummy = theano.shared(np.zeros((self.dim, self.batch_size), dtype=floatX))
@@ -187,7 +192,7 @@ class VQA_DMN_batch:
 
         ### Concatenating The 2 Memory Modules Representations Assuming the representation as self.batch_size x self.dim  ###
 
-        combined_mem_raw=T.concatenate([last_mem_raw,last_img_mem_raw],axis=0)
+        combined_mem_raw=T.concatenate([last_mem_raw,last_img_mem_raw],axis=1)
 
         #net = layers.InputLayer(shape=(self.batch_size, self.dim), input_var=last_mem_raw)
 
@@ -206,15 +211,15 @@ class VQA_DMN_batch:
             self.prediction = nn_utils.softmax(T.dot(self.W_a, last_mem))
 
         elif self.answer_module == 'recurrent':
-            self.W_ans_res_in = nn_utils.normal_param(std=0.1, shape=(2*self.dim, 2*self.dim + self.vocab_size))
+            self.W_ans_res_in = nn_utils.normal_param(std=0.1, shape=(2*self.dim, self.dim + self.vocab_size))
             self.W_ans_res_hid = nn_utils.normal_param(std=0.1, shape=(2*self.dim, 2*self.dim))
             self.b_ans_res = nn_utils.constant_param(value=0.0, shape=(2*self.dim,))
 
-            self.W_ans_upd_in = nn_utils.normal_param(std=0.1, shape=(2*self.dim, 2*self.dim + self.vocab_size))
+            self.W_ans_upd_in = nn_utils.normal_param(std=0.1, shape=(2*self.dim, self.dim + self.vocab_size))
             self.W_ans_upd_hid = nn_utils.normal_param(std=0.1, shape=(2*self.dim,2*self.dim))
             self.b_ans_upd = nn_utils.constant_param(value=0.0, shape=(2*self.dim,))
 
-            self.W_ans_hid_in = nn_utils.normal_param(std=0.1, shape=(2*self.dim, 2*self.dim + self.vocab_size))
+            self.W_ans_hid_in = nn_utils.normal_param(std=0.1, shape=(2*self.dim, self.dim + self.vocab_size))
             self.W_ans_hid_hid = nn_utils.normal_param(std=0.1, shape=(2*self.dim, 2*self.dim))
             self.b_ans_hid = nn_utils.constant_param(value=0.0, shape=(2*self.dim,))
 
@@ -249,9 +254,9 @@ class VQA_DMN_batch:
                   self.W_img_mem_res_in, self.W_img_mem_res_hid, self.b_img_mem_res,
                   self.W_img_mem_upd_in, self.W_img_mem_upd_hid, self.b_img_mem_upd,
                   self.W_img_mem_hid_in, self.W_img_mem_hid_hid, self.b_img_mem_hid, #self.W_img_b_img
-                  self.W_img_1, self.W_img_2, self.b_img_1, self.b_img_2, self.W_img_a]  ## Add the parameters of the Image Input Module
+                  self.W_img_1, self.W_img_2, self.b_img_1, self.b_img_2]  ## Add the parameters of the Image Input Module
 
-        dim_transform_mlp_params=layers.get_all_params(img_input_var_dim )
+        dim_transform_mlp_params=layers.get_all_params(img_input_layer )
 
         self.params=self.params+ dim_transform_mlp_params
 
@@ -417,7 +422,7 @@ class VQA_DMN_batch:
                 x.set_value(y)
 
 
-    def _process_batch(self, _inputs, _questions, _answers, _fact_counts, _input_masks , _img_feat):
+    def _process_batch(self, _inputs, _questions, _answers, _fact_counts, _input_masks , _img_feats):
         inputs = copy.deepcopy(_inputs)
         questions = copy.deepcopy(_questions)
         answers = copy.deepcopy(_answers)
@@ -571,9 +576,9 @@ class VQA_DMN_batch:
                 temp_Cs.append(temp_C_str)
             x["C"]=' . '.join(temp_Cs)
             if mode=="train":
-                x["I"]=img_h5file_train['images_train'][ img_indices[i]-1].reshape((196,512))
-            if mode=="test"
-                x["I"]=img_h5file_test['images_test'][ img_indices[i]-1].reshape((196,512))
+                x["I"]=self.img_h5file_train['images_train'][ img_indices[i]-1].reshape((196,512))
+            if mode=="test":
+                x["I"]=self.img_h5file_test['images_test'][ img_indices[i]-1].reshape((196,512))
 
             all_x.append(x)
         return self. _process_input(all_x)
@@ -607,9 +612,9 @@ class VQA_DMN_batch:
            # fact_counts=np.zeros(self.batch_size,dtype="int")
            # fact_counts.fill(20)
            # input_masks= process_masks( inputs  ) # figure it out
-
         inp,q,ans,fact_count,input_mask,img_feat=self._process_batch(inputs,qs,answers,fact_counts,input_masks,img_feats )
-        ret = theano_fn( inp,q,ans,fact_count,input_mask,image_feat,self.lr)
+        img_feat=img_feat.reshape((self.batch_size*self.img_seq_len,self.img_vector_size))
+        ret = theano_fn( inp,q,ans,fact_count,input_mask,img_feat,self.lr)
 
         param_norm=np.max( [ utils.get_norm( x.get_value()) for x  in self.params])
 
