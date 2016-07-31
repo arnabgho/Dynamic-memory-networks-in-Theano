@@ -386,18 +386,18 @@ class VQA_IMAGE_DMN_batch:
         g, g_updates = theano.scan(fn=self.new_img_attention_step,
             sequences=self.img_inp_c,
             non_sequences=[mem, self.q_q],
-            outputs_info=T.zeros_like(self.inp_c[0][0]))
+            outputs_info=T.zeros_like(self.img_inp_c[0][0]))
 
         if (self.normalize_attention):
             g = nn_utils.softmax(g)
 
         e, e_updates = theano.scan(fn=self.new_img_episode_step,
-            sequences=[self.inp_c, g],
-            outputs_info=T.zeros_like(self.inp_c[0]))
+            sequences=[self.img_inp_c, g],
+            outputs_info=T.zeros_like(self.img_inp_c[0]))
 
         e_list = []
         for index in range(self.batch_size):
-            e_list.append(e[self.fact_count_var[index] - 1, :, index])
+            e_list.append(e[self.img_seq_len - 1, :, index])
         return T.stack(e_list).dimshuffle((1, 0))
 
     def save_params(self, file_name, epoch, **kwargs):
