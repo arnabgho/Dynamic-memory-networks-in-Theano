@@ -18,7 +18,7 @@ import json
 import h5py
 floatX = theano.config.floatX
 
-class VQA_IMAGE_DMN_batch:
+class VQA_BOUNDING_DMN_batch:
 
     def __init__(self,word2vec, word_vector_size, dim,
                 mode, answer_module, input_mask_mode, memory_hops, batch_size, l2,
@@ -155,33 +155,50 @@ class VQA_IMAGE_DMN_batch:
 ################################# Episodic Memory Module for Image
 
         print "==> creating parameters for image memory module"
-        self.W_img_mem_res_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
-        self.W_img_mem_res_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
-        self.b_img_mem_res = nn_utils.constant_param(value=0.0, shape=(self.dim,))
+        #self.W_img_mem_res_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        #self.W_img_mem_res_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        #self.b_img_mem_res = nn_utils.constant_param(value=0.0, shape=(self.dim,))
 
-        self.W_img_mem_upd_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
-        self.W_img_mem_upd_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
-        self.b_img_mem_upd = nn_utils.constant_param(value=0.0, shape=(self.dim,))
+        #self.W_img_mem_upd_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        #self.W_img_mem_upd_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        #self.b_img_mem_upd = nn_utils.constant_param(value=0.0, shape=(self.dim,))
 
-        self.W_img_mem_hid_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
-        self.W_img_mem_hid_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
-        self.b_img_mem_hid = nn_utils.constant_param(value=0.0, shape=(self.dim,))
+        #self.W_img_mem_hid_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        #self.W_img_mem_hid_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        #self.b_img_mem_hid = nn_utils.constant_param(value=0.0, shape=(self.dim,))
 
-        self.W_img_b = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
-        self.W_img_1 = nn_utils.normal_param(std=0.1, shape=(self.dim, 7 * self.dim + 0))
-        self.W_img_2 = nn_utils.normal_param(std=0.1, shape=(1, self.dim))
-        self.b_img_1 = nn_utils.constant_param(value=0.0, shape=(self.dim,))
-        self.b_img_2 = nn_utils.constant_param(value=0.0, shape=(1,))
+        #self.W_img_b = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        #self.W_img_1 = nn_utils.normal_param(std=0.1, shape=(self.dim, 7 * self.dim + 0))
+        #self.W_img_2 = nn_utils.normal_param(std=0.1, shape=(1, self.dim))
+        #self.b_img_1 = nn_utils.constant_param(value=0.0, shape=(self.dim,))
+        #self.b_img_2 = nn_utils.constant_param(value=0.0, shape=(1,))
 
 
+#        self.W_img_mem_res_in  =         self.W_mem_res_in
+#        self.W_img_mem_res_hid  =        self.W_mem_res_hid
+#        self.b_img_mem_res =           self.b_mem_res = n
+#
+#        self.W_img_mem_upd_in =           self.W_mem_upd_in
+#        self.W_img_mem_upd_hid =         self.W_mem_upd_hid
+#        self.b_img_mem_upd =           self.b_mem_upd = n
+#
+#        self.W_img_mem_hid_in =           self.W_mem_hid_in
+#        self.W_img_mem_hid_hid =          self.W_mem_hid_hid
+#        self.b_img_mem_hid =           self.b_mem_hid = n
+#
+#        self.W_img_b =   self.W_b
+#        self.W_img_1 =   self.W_1
+#        self.W_img_2 =   self.W_2
+#        self.b_img_1 =   self.b_1
+#        self.b_img_2 =   self.b_2
         print "==> building episodic img_memory module (fixed number of steps: %d)" % self.memory_hops
         img_memory = [self.q_q.copy()]
         for iter in range(1, self.memory_hops + 1):
             current_episode = self.new_img_episode(img_memory[iter - 1])
             img_memory.append(self.GRU_update(img_memory[iter - 1], current_episode,
-                                          self.W_img_mem_res_in, self.W_img_mem_res_hid, self.b_img_mem_res,
-                                          self.W_img_mem_upd_in, self.W_img_mem_upd_hid, self.b_img_mem_upd,
-                                          self.W_img_mem_hid_in, self.W_img_mem_hid_hid, self.b_img_mem_hid))
+                                          self.W_mem_res_in, self.W_mem_res_hid, self.b_mem_res,
+                                          self.W_mem_upd_in, self.W_mem_upd_hid, self.b_mem_upd,
+                                          self.W_mem_hid_in, self.W_mem_hid_hid, self.b_mem_hid))
 
         last_img_mem_raw = img_memory[-1].dimshuffle((1, 0))
 
@@ -250,11 +267,7 @@ class VQA_IMAGE_DMN_batch:
                   self.W_mem_res_in, self.W_mem_res_hid, self.b_mem_res,
                   self.W_mem_upd_in, self.W_mem_upd_hid, self.b_mem_upd,
                   self.W_mem_hid_in, self.W_mem_hid_hid, self.b_mem_hid, #self.W_b
-                  self.W_1, self.W_2, self.b_1, self.b_2, self.W_a,  ## Add the parameters of the Image Input Module
-                  self.W_img_mem_res_in, self.W_img_mem_res_hid, self.b_img_mem_res,
-                  self.W_img_mem_upd_in, self.W_img_mem_upd_hid, self.b_img_mem_upd,
-                  self.W_img_mem_hid_in, self.W_img_mem_hid_hid, self.b_img_mem_hid, #self.W_img_b_img
-                  self.W_img_1, self.W_img_2, self.b_img_1, self.b_img_2]  ## Add the parameters of the Image Input Module
+                  self.W_1, self.W_2, self.b_1, self.b_2, self.W_a]  ## Add the parameters of the Image Input Module
 
         dim_transform_mlp_params=layers.get_all_params(img_input_layer )
 
@@ -337,9 +350,9 @@ class VQA_IMAGE_DMN_batch:
     def new_img_attention_step(self, ct, prev_g, mem, q_q):
         z = T.concatenate([ct, mem, q_q, ct * q_q, ct * mem, (ct - q_q) ** 2, (ct - mem) ** 2], axis=0)
 
-        l_1 = T.dot(self.W_img_1, z) + self.b_img_1.dimshuffle(0, 'x')
+        l_1 = T.dot(self.W_1, z) + self.b_1.dimshuffle(0, 'x')
         l_1 = T.tanh(l_1)
-        l_2 = T.dot(self.W_img_2, l_1) + self.b_img_2.dimshuffle(0, 'x')
+        l_2 = T.dot(self.W_2, l_1) + self.b_2.dimshuffle(0, 'x')
         G = T.nnet.sigmoid(l_2)[0]
         return G
 
@@ -374,9 +387,9 @@ class VQA_IMAGE_DMN_batch:
 
     def new_img_episode_step(self, ct, g, prev_h):
         gru = self.GRU_update(prev_h, ct,
-                             self.W_img_mem_res_in, self.W_img_mem_res_hid, self.b_img_mem_res,
-                             self.W_img_mem_upd_in, self.W_img_mem_upd_hid, self.b_img_mem_upd,
-                             self.W_img_mem_hid_in, self.W_img_mem_hid_hid, self.b_img_mem_hid)
+                             self.W_mem_res_in, self.W_mem_res_hid, self.b_mem_res,
+                             self.W_mem_upd_in, self.W_mem_upd_hid, self.b_mem_upd,
+                             self.W_mem_hid_in, self.W_mem_hid_hid, self.b_mem_hid)
 
         h = g * gru + (1 - g) * prev_h
         return h
