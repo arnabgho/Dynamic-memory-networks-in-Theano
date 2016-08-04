@@ -148,7 +148,7 @@ def do_epoch(mode, epoch, skipped=0):
             start_index=i*dmn.batch_size
             for x in prediction.argmax(axis=1):
                 y_pred.append(x)
-                answer=ix_to_ans[x+1]
+                answer=ix_to_ans[str(x+1)]
                 question_id=dmn.h5file["ques_id_test"][start_index+offset]
                 json_results_data.append({"question_id":question_id,"answer":answer})
                 offset+=1
@@ -183,7 +183,7 @@ def do_epoch(mode, epoch, skipped=0):
 
 
 
-elif args.mode == 'test':
+if args.mode == 'test':
     file = open('last_tested_model.json', 'w+')
     data = dict(args._get_kwargs())
     data["id"] = network_name
