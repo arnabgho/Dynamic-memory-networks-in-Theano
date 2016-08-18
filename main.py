@@ -12,7 +12,7 @@ from progress.bar import Bar
 print "==> parsing input arguments"
 parser = argparse.ArgumentParser()
 
-parser.add_argument('--network', type=str, default="vqa_image_dmn_batch", help='network type: dmn_basic, dmn_smooth, vqa_dmn_batch,vqa_image_dmn_batch or dmn_batch')
+parser.add_argument('--network', type=str, default="plus_vqa_bounding_shared_att_dmn_batch", help='network type: dmn_basic, dmn_smooth, vqa_dmn_batch,vqa_image_dmn_batch or dmn_batch')
 parser.add_argument('--word_vector_size', type=int, default=300, help='embeding size (50, 100, 200, 300 only)')
 parser.add_argument('--dim', type=int, default=320, help='number of hidden units in input module GRU')
 parser.add_argument('--epochs', type=int, default=500, help='number of epochs')
@@ -36,10 +36,10 @@ parser.add_argument('--h5file',type=str,default="data/vqa_fact_data_prepro.h5",h
 parser.add_argument('--json_dict_file',type=str,default="data/vqa_fact_data_prepro.json",help="The json file containing dicts")
 parser.add_argument('--num_answers',type=int,default=1000,help="The number of answers")
 parser.add_argument('--learning_rate_decay',type=float,default=0.5,help="The learning rate decay")
-parser.add_argument('--img_h5file_train',type=str,default="data/vqa_data_img_vgg_train.h5",help="The h5 file containing img features")
-parser.add_argument('--img_h5file_test',type=str,default="data/vqa_data_img_vgg_test.h5",help="The h5 file containing img features")
-parser.add_argument('--img_seq_len',type=int,default=196,help="The number of image memories present")
-parser.add_argument('--img_vector_size',type=int,default=512,help="The img memory size")
+parser.add_argument('--img_h5file_train',type=str,default="data/vqa_box_feat_train.h5",help="The h5 file containing img features")
+parser.add_argument('--img_h5file_test',type=str,default="data/vqa_box_feat_test.h5",help="The h5 file containing img features")
+parser.add_argument('--img_seq_len',type=int,default=20,help="The number of image memories present")
+parser.add_argument('--img_vector_size',type=int,default=4096,help="The img memory size")
 
 parser.set_defaults(shuffle=True)
 args = parser.parse_args()
@@ -103,6 +103,22 @@ elif args.network == 'vqa_image_dmn_batch':
     import vqa_image_dmn_batch
     dmn=vqa_image_dmn_batch.VQA_IMAGE_DMN_batch(**args_dict)
 
+elif args.network == 'vqa_image_only_dmn_batch':
+    import vqa_image_only_dmn_batch
+    dmn=vqa_image_only_dmn_batch.VQA_IMAGE_DMN_batch(**args_dict)
+
+
+elif args.network == 'vqa_bounding_dmn_batch':
+    import vqa_bounding_dmn_batch
+    dmn=vqa_bounding_dmn_batch.VQA_BOUNDING_DMN_batch(**args_dict)
+
+elif args.network == 'vqa_bounding_shared_att_dmn_batch':
+    import vqa_bounding_shared_att_dmn_batch
+    dmn=vqa_bounding_shared_att_dmn_batch.VQA_BOUNDING_SHARED_ATT_DMN_batch(**args_dict)
+
+elif args.network == 'plus_vqa_bounding_shared_att_dmn_batch':
+    import plus_vqa_bounding_shared_att_dmn_batch
+    dmn=plus_vqa_bounding_shared_att_dmn_batch.PLUS_VQA_BOUNDING_SHARED_ATT_DMN_batch(**args_dict)
 
 
 else:
