@@ -12,7 +12,7 @@ from progress.bar import Bar
 print "==> parsing input arguments"
 parser = argparse.ArgumentParser()
 
-parser.add_argument('--network', type=str, default="plus_vqa_bounding_shared_att_dmn_batch", help='network type: dmn_basic, dmn_smooth, vqa_dmn_batch,vqa_image_dmn_batch or dmn_batch')
+parser.add_argument('--network', type=str, default="plus_scan_vqa_bounding_shared_att_dmn_batch", help='network type: dmn_basic, dmn_smooth, vqa_dmn_batch,vqa_image_dmn_batch or dmn_batch')
 parser.add_argument('--word_vector_size', type=int, default=300, help='embeding size (50, 100, 200, 300 only)')
 parser.add_argument('--dim', type=int, default=320, help='number of hidden units in input module GRU')
 parser.add_argument('--epochs', type=int, default=500, help='number of epochs')
@@ -119,6 +119,10 @@ elif args.network == 'vqa_bounding_shared_att_dmn_batch':
 elif args.network == 'plus_vqa_bounding_shared_att_dmn_batch':
     import plus_vqa_bounding_shared_att_dmn_batch
     dmn=plus_vqa_bounding_shared_att_dmn_batch.PLUS_VQA_BOUNDING_SHARED_ATT_DMN_batch(**args_dict)
+
+elif args.network == 'plus_scan_vqa_bounding_shared_att_dmn_batch':
+    import plus_scan_vqa_bounding_shared_att_dmn_batch
+    dmn=plus_scan_vqa_bounding_shared_att_dmn_batch.PLUS_VQA_BOUNDING_SHARED_ATT_DMN_batch(**args_dict)
 
 
 else:

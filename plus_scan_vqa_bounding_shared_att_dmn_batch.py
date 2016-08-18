@@ -91,7 +91,7 @@ class PLUS_VQA_BOUNDING_SHARED_ATT_DMN_batch:
             inp_c_list.append(T.concatenate([taken, T.zeros((self.input_mask_var.shape[1] - taken.shape[0], self.dim), floatX)]))
             inp_c_mask_list.append(T.concatenate([T.ones((taken.shape[0],), np.int32), T.zeros((self.input_mask_var.shape[1] - taken.shape[0],), np.int32)]))
 
-        self.inp_c_temp = T.stack(inp_c_list)
+        inp_c_temp = T.stack(inp_c_list)
 
         self.W_sentence_res_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
         self.W_sentence_res_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
@@ -105,12 +105,32 @@ class PLUS_VQA_BOUNDING_SHARED_ATT_DMN_batch:
         self.W_sentence_hid_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
         self.b_sentence_hid = nn_utils.constant_param(value=0.0, shape=(self.dim,))
 
-        self.inp_c_shuffled=self.inp_c_temp.dimshuffle(1,2,0)
+
+        self.W_sentence_back_res_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        self.W_sentence_back_res_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        self.b_sentence_back_res = nn_utils.constant_param(value=0.0, shape=(self.dim,))
+
+        self.W_sentence_back_upd_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        self.W_sentence_back_upd_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        self.b_sentence_back_upd = nn_utils.constant_param(value=0.0, shape=(self.dim,))
+
+        self.W_sentence_back_hid_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        self.W_sentence_back_hid_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        self.b_sentence_back_hid = nn_utils.constant_param(value=0.0, shape=(self.dim,))
 
 
+        inp_c_shuffled=inp_c_temp.dimshuffle(1,2,0)
 
+        sentence_dummy=theano.shared(np.zeros((self.dim,self.batch_size),dtype=floatX))
+        forward_sentence,_=theano.scan(fn=self.sentence_gru_step,
+                                    sequences=inp_c_shuffled,
+                                    outputs_info=T.zeros_like(sentence_dummy))
+        backward_sentence,_=theano.scan(fn=self.sentence_back_gru_step,
+                                    sequences=inp_c_shuffled,
+                                    outputs_info=T.zeros_like(sentence_dummy),
+                                    go_backwards=True)
 
-        self.inp_c=
+        self.inp_c=forward_sentence+backward_sentence
         inp_c_mask = T.stack(inp_c_mask_list).dimshuffle(1, 0)
 
 ###################### Adding the Image Input Module
@@ -126,21 +146,49 @@ class PLUS_VQA_BOUNDING_SHARED_ATT_DMN_batch:
 
         img_input_var_dim=layers.get_output(img_input_layer)
 
-        img_input_var_dim=T.reshape(img_input_var_dim ,(self.batch_size , self.img_seq_len , self.dim )  )
+        img_inp_c_reshaped=T.reshape(img_input_var_dim ,(self.batch_size , self.img_seq_len , self.dim )  )
 
         #self.img_inp_c = T.stack(img_input_var_dim).dimshuffle(1, 2, 0)
-        bigru_img_input_layer=layers.InputLayer(shape=(self.batch_size,self.img_seq_len,self.dim),input_var=img_input_var_dim)
+        img_inp_c_shuffled=img_inp_c_reshaped.dimshuffle(1,2,0)
 
-        forward_gru_img=layers.recurrent.GRULayer(bigru_img_input_layer,num_units=self.dim)
-                    #ingate=gate_parameters,forgetgate=gate_parameters,cell=cell_parameters,outgate=gate_parameters)
-        backward_gru_img=layers.recurrent.GRULayer(bigru_img_input_layer,num_units=self.dim,backwards=True)
-                    #ingate=gate_parameters,forgetgate=gate_parameters,cell=cell_parameters,outgate=gate_parameters)
-        bigru_img_out=lasagne.layers.ElemwiseSumLayer([ forward_gru_img , backward_gru_img ])
+        self.W_img_res_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        self.W_img_res_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        self.b_img_res = nn_utils.constant_param(value=0.0, shape=(self.dim,))
 
-        img_c_bigru=layers.get_output( bigru_img_out)
+        self.W_img_upd_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        self.W_img_upd_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        self.b_img_upd = nn_utils.constant_param(value=0.0, shape=(self.dim,))
 
-        self.img_inp_c = img_c_bigru.dimshuffle(1,2,0)
-###################################################
+        self.W_img_hid_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        self.W_img_hid_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        self.b_img_hid = nn_utils.constant_param(value=0.0, shape=(self.dim,))
+
+        self.W_img_back_res_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        self.W_img_back_res_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        self.b_img_back_res = nn_utils.constant_param(value=0.0, shape=(self.dim,))
+
+        self.W_img_back_upd_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        self.W_img_back_upd_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        self.b_img_back_upd = nn_utils.constant_param(value=0.0, shape=(self.dim,))
+
+        self.W_img_back_hid_in = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        self.W_img_back_hid_hid = nn_utils.normal_param(std=0.1, shape=(self.dim, self.dim))
+        self.b_img_back_hid = nn_utils.constant_param(value=0.0, shape=(self.dim,))
+
+
+        img_dummy=theano.shared(np.zeros((self.dim,self.batch_size),dtype=floatX))
+        forward_img,_=theano.scan(fn=self.img_gru_step,
+                                    sequences=img_inp_c_shuffled,
+                                    outputs_info=T.zeros_like(img_dummy))
+        backward_img,_=theano.scan(fn=self.img_back_gru_step,
+                                    sequences=img_inp_c_shuffled,
+                                    outputs_info=T.zeros_like(img_dummy),
+                                    go_backwards=True)
+
+        self.img_inp_c=forward_img+backward_img
+
+
+        ###################################################
         q_var_shuffled = self.q_var.dimshuffle(1, 2, 0)
         q_dummy = theano.shared(np.zeros((self.dim, self.batch_size), dtype=floatX))
         q_q_history, _ = theano.scan(fn=self.input_gru_step,
@@ -285,10 +333,27 @@ class PLUS_VQA_BOUNDING_SHARED_ATT_DMN_batch:
                   #self.W_img_1, self.W_img_2, self.b_img_1, self.b_img_2]  ## Add the parameters of the Image Input Module
 
         dim_transform_mlp_params=layers.get_all_params(img_input_layer )
-        sentence_bigru_params=layers.get_all_params( forward_gru_sentence) + layers.get_all_params( backward_gru_sentence)
-        img_bigru_params=layers.get_all_params( forward_gru_img) + layers.get_all_params( backward_gru_img)
 
-        self.params=self.params+ dim_transform_mlp_params + sentence_bigru_params + img_bigru_params
+        sentence_bigru_params= [self.W_sentence_res_in, self.W_sentence_res_hid, self.b_sentence_res,
+                  self.W_sentence_upd_in, self.W_sentence_upd_hid, self.b_sentence_upd,
+                  self.W_sentence_hid_in, self.W_sentence_hid_hid, self.b_sentence_hid]
+
+        img_bigru_params= [self.W_img_res_in, self.W_img_res_hid, self.b_img_res,
+                  self.W_img_upd_in, self.W_img_upd_hid, self.b_img_upd,
+                  self.W_img_hid_in, self.W_img_hid_hid, self.b_img_hid]
+
+        sentence_back_bigru_params= [self.W_sentence_back_res_in, self.W_sentence_back_res_hid, self.b_sentence_back_res,
+                  self.W_sentence_back_upd_in, self.W_sentence_back_upd_hid, self.b_sentence_back_upd,
+                  self.W_sentence_back_hid_in, self.W_sentence_back_hid_hid, self.b_sentence_back_hid]
+
+        img_back_bigru_params= [self.W_img_back_res_in, self.W_img_back_res_hid, self.b_img_back_res,
+                  self.W_img_back_upd_in, self.W_img_back_upd_hid, self.b_img_back_upd,
+                  self.W_img_back_hid_in, self.W_img_back_hid_hid, self.b_img_back_hid]
+
+
+
+        self.params=self.params+ dim_transform_mlp_params + sentence_bigru_params + img_bigru_params + sentence_back_bigru_params + img_back_bigru_params
+
 
         if self.answer_module == 'recurrent':
             self.params = self.params + [self.W_ans_res_in, self.W_ans_res_hid, self.b_ans_res,
@@ -353,6 +418,28 @@ class PLUS_VQA_BOUNDING_SHARED_ATT_DMN_batch:
         return self.GRU_update(prev_h, x, self.W_inp_res_in, self.W_inp_res_hid, self.b_inp_res,
                                      self.W_inp_upd_in, self.W_inp_upd_hid, self.b_inp_upd,
                                      self.W_inp_hid_in, self.W_inp_hid_hid, self.b_inp_hid)
+
+
+    def sentence_gru_step(self, x, prev_h):
+        return self.GRU_update(prev_h, x, self.W_sentence_res_in, self.W_sentence_res_hid, self.b_sentence_res,
+                                     self.W_sentence_upd_in, self.W_sentence_upd_hid, self.b_sentence_upd,
+                                     self.W_sentence_hid_in, self.W_sentence_hid_hid, self.b_sentence_hid)
+
+    def img_gru_step(self, x, prev_h):
+        return self.GRU_update(prev_h, x, self.W_img_res_in, self.W_img_res_hid, self.b_img_res,
+                                     self.W_img_upd_in, self.W_img_upd_hid, self.b_img_upd,
+                                     self.W_img_hid_in, self.W_img_hid_hid, self.b_img_hid)
+
+    def sentence_back_gru_step(self, x, prev_h):
+        return self.GRU_update(prev_h, x, self.W_sentence_back_res_in, self.W_sentence_back_res_hid, self.b_sentence_back_res,
+                                     self.W_sentence_back_upd_in, self.W_sentence_back_upd_hid, self.b_sentence_back_upd,
+                                     self.W_sentence_back_hid_in, self.W_sentence_back_hid_hid, self.b_sentence_back_hid)
+
+    def img_back_gru_step(self, x, prev_h):
+        return self.GRU_update(prev_h, x, self.W_img_back_res_in, self.W_img_back_res_hid, self.b_img_back_res,
+                                     self.W_img_back_upd_in, self.W_img_back_upd_hid, self.b_img_back_upd,
+                                     self.W_img_back_hid_in, self.W_img_back_hid_hid, self.b_img_back_hid)
+
 
 
     def new_attention_step(self, ct, prev_g, mem, q_q):
